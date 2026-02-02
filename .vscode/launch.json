@@ -1,0 +1,18 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Wails Backend",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}",
+            "env": {
+                "WAILS_ENV": "development"
+            },
+            "args": [
+                "dev"
+            ]
+        }
+    ]
+}
