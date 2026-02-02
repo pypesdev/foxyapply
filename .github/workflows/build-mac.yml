@@ -18,37 +18,78 @@ jobs:
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v3/cmd/wails3@latest
 
-      - name: Import Certificate
-        env:
-          CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE }}
-          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-        run: |
-          echo $CERTIFICATE_BASE64 | base64 --decode > certificate.p12
-          security create-keychain -p "" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "" build.keychain
-          security import certificate.p12 -k build.keychain -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" build.keychain
+      - name: Build
+        run: wails3 task darwin:build
 
-      - name: Store Notarization Credentials
+      - name: Codesign macOS app
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          echo $MACOS_CERTIFICATE | base64 -d > certificate.p12
+          security create-keychain -p "$MACOS_CERTIFICATE_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$MACOS_CERTIFICATE_PASSWORD" build.keychain
+          security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CERTIFICATE_PASSWORD" build.keychain
+          APP="build/darwin/bin/foxyapply"
+          codesign --force --deep --options runtime --timestamp \
+            -s "{{MACOS_SIGN_IDENTITY}}" \
+            "$APP" -v
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+      - name: Notarize + staple (macOS)
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          wails3 signing credentials \
+          APP="build/darwin/bin/foxyapply"
+          ZIP="build/darwin/bin/foxyapply.zip"
+          rm -f "$ZIP"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+          echo "=== Submitting to Apple notarization ==="
+          SUBMIT_JSON="$(xcrun notarytool submit "$ZIP" \
             --apple-id "$APPLE_ID" \
-            --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_APP_PASSWORD" \
-            --profile "notarize-profile"
+            --team-id "$APPLE_TEAM_ID" \
+            --wait \
+            --output-format json)"
 
-      - name: Build, Sign, and Notarize
-        env:
-          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
-        run: |
-          wails3 task darwin:sign:notarize \
-            SIGN_IDENTITY="$SIGN_IDENTITY" \
-            KEYCHAIN_PROFILE="notarize-profile"
+          echo "$SUBMIT_JSON"
+
+          STATUS="$(echo "$SUBMIT_JSON" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("status",""))')"
+          ID="$(echo "$SUBMIT_JSON" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("id",""))')"
+
+          if [ "$STATUS" != "Accepted" ]; then
+            echo "Notarization not accepted. Status=$STATUS ID=$ID"
+            if [ -n "$ID" ]; then
+              echo "=== Fetching notarization log ==="
+              xcrun notarytool log "$ID" \
+                --apple-id "$APPLE_ID" \
+                --password "$APPLE_APP_PASSWORD" \
+                --team-id "$APPLE_TEAM_ID" || true
+            fi
+            exit 1
+          fi
+
+          echo "=== Stapling ticket ==="
+          for i in 1 2 3 4 5; do
+            if xcrun stapler staple "$APP"; then
+              break
+            fi
+            echo "Staple attempt $i failed (CloudKit lag). Sleeping..."
+            sleep $((i*10))
+          done
+
+          xcrun stapler validate "$APP"
+
+          # Re-zip stapled app for distribution
+          rm -f "$ZIP"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+          # Optional: remove .app so release only uploads zip
+          rm -rf "$APP"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
