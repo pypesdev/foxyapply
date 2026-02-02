@@ -35,7 +35,7 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CERTIFICATE_PASSWORD" build.keychain
           APP="build/darwin/bin/foxyapply"
           codesign --force --deep --options runtime --timestamp \
-            -s "{{MACOS_SIGN_IDENTITY}}" \
+            -s "$MACOS_SIGN_IDENTITY" \
             "$APP" -v
           codesign --verify --deep --strict --verbose=2 "$APP"
 
