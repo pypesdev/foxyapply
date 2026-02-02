@@ -29,17 +29,17 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v3/cmd/wails3@latest
-
-      - name: Install Task
-        uses: arduino/setup-task@v2
-
       - name: Install Linux dependencies
         if: matrix.goos == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+
+      - name: Install Task
+        uses: arduino/setup-task@v2
 
       - name: Build
         run: wails3 build
