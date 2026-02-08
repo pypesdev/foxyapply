@@ -255,10 +255,9 @@ func sleepRand(minSec, maxSec float64) {
 
 func (bm *BrowserManager) FillOutEasyApplyForm(page *rod.Page, profile *store.LinkedInProfile) (bool, error) {
 	const (
-		nextSel   = `button[aria-label='Continue to next step']`
-		reviewSel = `button[aria-label='Review your application']`
-		submitSel = `button[aria-label='Submit application']`
-
+		nextSel         = `button[aria-label='Continue to next step']`
+		reviewSel       = `button[aria-label='Review your application']`
+		submitSel       = `button[aria-label='Submit application']`
 		errorMessageSel = `.artdeco-inline-feedback__icon`
 		followLabelSel  = `label[for='follow-company-checkbox']`
 	)
@@ -269,10 +268,10 @@ func (bm *BrowserManager) FillOutEasyApplyForm(page *rod.Page, profile *store.Li
 	}
 
 	buttons := []locator{
-		{kind: "css", q: nextSel}, // i == 0
+		{kind: "css", q: nextSel},
 		{kind: "css", q: reviewSel},
-		{kind: "css", q: followLabelSel}, // i == 2 special case
-		{kind: "css", q: submitSel},      // i == 3 => submitted
+		{kind: "css", q: followLabelSel},
+		{kind: "css", q: submitSel},
 	}
 
 	submitted := false
@@ -281,13 +280,10 @@ func (bm *BrowserManager) FillOutEasyApplyForm(page *rod.Page, profile *store.Li
 		page.MustWaitLoad()
 		_, err := page.Timeout(4 * time.Second).Element(loc.q)
 		if err != nil {
-			// Check if there are iframes
 			iframes := page.MustElements("iframe")
 			for _, iframe := range iframes {
-				// Switch to iframe context
 				frame := iframe.MustFrame()
 
-				// Try to find element in iframe
 				if loc.kind == "css" {
 					if has, _, _ := frame.Has(loc.q); has {
 						return true
@@ -323,10 +319,8 @@ func (bm *BrowserManager) FillOutEasyApplyForm(page *rod.Page, profile *store.Li
 				if err != nil {
 					continue
 				}
-				if shadowRoot := host.MustShadowRoot(); shadowRoot != nil {
-					if err := bm.FillInvalids(shadowRoot, profile, nil); err != nil {
-						log.Println("fillInvalids error:", err)
-					}
+				if err := bm.FillInvalids(host, profile, nil); err != nil {
+					log.Println("fillInvalids error:", err)
 				}
 			}
 		}
@@ -556,20 +550,52 @@ func ChooseValue(labelText, inputType string, p *store.LinkedInProfile, llmFallb
 
 func (bm *BrowserManager) FillInvalids(page *rod.Element, profile *store.LinkedInProfile, llmFallback func(label, typ string) (string, error)) error {
 	const (
-		textInputXPath = `//*[starts-with(@id, 'single-line-text-form-component-formElement-urn-li-jobs-applyformcommon-easyApplyFormElement-')]`
+		textInputXPath   = `//*[starts-with(@id, 'single-line-text-form-component-formElement-urn-li-jobs-applyformcommon-easyApplyFormElement-')]`
+		selectInputXPath = `//*[starts-with(@id, 'single-select-form-component-formElement-urn-li-jobs-applyformcommon-easyApplyFormElement-')]`
+		fieldsetSelector = `fieldset[data-test-form-builder-radio-button-form-component="true"]`
 	)
 
-	integerInputs := page.MustElementsX(textInputXPath)
-	for _, inputEl := range integerInputs {
-		if isEmpty(inputEl) && isRequired(inputEl) {
-			labelText := getBestLabelText(page, inputEl)
-			inputType := attr(inputEl, "type")
+	hasInteger, integerInput, err := page.Has(textInputXPath)
+	if err != nil {
+		return fmt.Errorf("error finding text inputs: %w", err)
+	}
+	if hasInteger {
+		log.Printf("Found text input")
+		if isEmpty(integerInput) {
+			labelText := getBestLabelText(page, integerInput)
+			inputType := attr(integerInput, "type")
 			value := ChooseValue(labelText, inputType, profile, llmFallback)
-			if err := clearAndType(inputEl, value); err != nil {
+			if err := clearAndType(integerInput, value); err != nil {
 				log.Printf("Failed to fill input for label '%s': %v", labelText, err)
 			} else {
 				log.Printf("Filled input for label '%s' with value '%s'", labelText, value)
 			}
+		}
+	}
+
+	hasFieldset, fieldset, err := page.Has(fieldsetSelector)
+	if err != nil {
+		return fmt.Errorf("error finding fieldsets: %w", err)
+	}
+	if hasFieldset {
+		log.Printf("Found fieldset (radio buttons)")
+		questionSelector := `span[aria-hidden="true"]`
+		questionElem := fieldset.MustElement(questionSelector)
+		questionText := strings.TrimSpace(questionElem.MustText())
+		fmt.Printf("Question: %s\n", questionText)
+		// Get all radio options
+		options := make(map[string]*rod.Element)
+
+		// Yes option
+		if yesRadio := fieldset.MustElement(`input[data-test-text-selectable-option__input="Yes"]`); yesRadio != nil {
+			fmt.Printf("Found Yes options for question: %s\n", questionText)
+			options["yes"] = yesRadio
+		}
+
+		// No option
+		if noRadio := fieldset.MustElement(`input[data-test-text-selectable-option__input="No"]`); noRadio != nil {
+			fmt.Printf("Found No options for question: %s\n", questionText)
+			options["no"] = noRadio
 		}
 	}
 
