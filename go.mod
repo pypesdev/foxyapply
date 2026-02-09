@@ -3,22 +3,14 @@ module foxyapply
 go 1.25
 
 require (
-	github.com/PuerkitoBio/goquery v1.11.0
-	github.com/go-rod/rod v0.116.2
-	github.com/go-rod/stealth v0.4.9
+	github.com/gorilla/websocket v1.5.3
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.63
 )
 
 require (
-	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/ysmood/fetchup v0.2.3 // indirect
-	github.com/ysmood/goob v0.4.0 // indirect
-	github.com/ysmood/got v0.40.0 // indirect
-	github.com/ysmood/gson v0.7.3 // indirect
-	github.com/ysmood/leakless v0.9.0 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
 	modernc.org/libc v1.67.6 // indirect
 	modernc.org/mathutil v1.7.1 // indirect

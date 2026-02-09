@@ -26,6 +26,8 @@ export class LinkedInProfile {
     "userState": string;
     "zipCode": string;
     "desiredSalary": number;
+    "blacklist": string[];
+    "blacklistTitles": string[];
     "createdAt": time$0.Time;
     "updatedAt": time$0.Time;
 
@@ -70,6 +72,12 @@ export class LinkedInProfile {
         if (!("desiredSalary" in $$source)) {
             this["desiredSalary"] = 0;
         }
+        if (!("blacklist" in $$source)) {
+            this["blacklist"] = [];
+        }
+        if (!("blacklistTitles" in $$source)) {
+            this["blacklistTitles"] = [];
+        }
         if (!("createdAt" in $$source)) {
             this["createdAt"] = null;
         }
@@ -86,12 +94,20 @@ export class LinkedInProfile {
     static createFrom($$source: any = {}): LinkedInProfile {
         const $$createField4_0 = $$createType0;
         const $$createField5_0 = $$createType0;
+        const $$createField13_0 = $$createType0;
+        const $$createField14_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("positions" in $$parsedSource) {
             $$parsedSource["positions"] = $$createField4_0($$parsedSource["positions"]);
         }
         if ("locations" in $$parsedSource) {
             $$parsedSource["locations"] = $$createField5_0($$parsedSource["locations"]);
+        }
+        if ("blacklist" in $$parsedSource) {
+            $$parsedSource["blacklist"] = $$createField13_0($$parsedSource["blacklist"]);
+        }
+        if ("blacklistTitles" in $$parsedSource) {
+            $$parsedSource["blacklistTitles"] = $$createField14_0($$parsedSource["blacklistTitles"]);
         }
         return new LinkedInProfile($$parsedSource as Partial<LinkedInProfile>);
     }
@@ -111,6 +127,10 @@ export class LinkedInProfileUpdate {
     "yearsExperience": number;
     "userCity": string;
     "userState": string;
+    "zipCode": string;
+    "desiredSalary": number;
+    "blacklist": string[];
+    "blacklistTitles": string[];
 
     /** Creates a new LinkedInProfileUpdate instance. */
     constructor($$source: Partial<LinkedInProfileUpdate> = {}) {
@@ -144,6 +164,18 @@ export class LinkedInProfileUpdate {
         if (!("userState" in $$source)) {
             this["userState"] = "";
         }
+        if (!("zipCode" in $$source)) {
+            this["zipCode"] = "";
+        }
+        if (!("desiredSalary" in $$source)) {
+            this["desiredSalary"] = 0;
+        }
+        if (!("blacklist" in $$source)) {
+            this["blacklist"] = [];
+        }
+        if (!("blacklistTitles" in $$source)) {
+            this["blacklistTitles"] = [];
+        }
 
         Object.assign(this, $$source);
     }
@@ -154,12 +186,20 @@ export class LinkedInProfileUpdate {
     static createFrom($$source: any = {}): LinkedInProfileUpdate {
         const $$createField3_0 = $$createType0;
         const $$createField4_0 = $$createType0;
+        const $$createField12_0 = $$createType0;
+        const $$createField13_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("positions" in $$parsedSource) {
             $$parsedSource["positions"] = $$createField3_0($$parsedSource["positions"]);
         }
         if ("locations" in $$parsedSource) {
             $$parsedSource["locations"] = $$createField4_0($$parsedSource["locations"]);
+        }
+        if ("blacklist" in $$parsedSource) {
+            $$parsedSource["blacklist"] = $$createField12_0($$parsedSource["blacklist"]);
+        }
+        if ("blacklistTitles" in $$parsedSource) {
+            $$parsedSource["blacklistTitles"] = $$createField13_0($$parsedSource["blacklistTitles"]);
         }
         return new LinkedInProfileUpdate($$parsedSource as Partial<LinkedInProfileUpdate>);
     }

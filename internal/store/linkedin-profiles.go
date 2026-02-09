@@ -21,6 +21,8 @@ type LinkedInProfile struct {
 	UserState       string    `json:"userState"`
 	ZipCode         string    `json:"zipCode"`
 	DesiredSalary   int       `json:"desiredSalary"`
+	Blacklist       []string  `json:"blacklist"`
+	BlacklistTitles []string  `json:"blacklistTitles"`
 	CreatedAt       time.Time `json:"createdAt"`
 	UpdatedAt       time.Time `json:"updatedAt"`
 }
@@ -46,18 +48,21 @@ func (s *Store) CreateLinkedInProfile(email, password string) (*LinkedInProfile,
 // GetLinkedInProfile retrieves a LinkedIn profile by ID
 func (s *Store) GetLinkedInProfile(id int64) (*LinkedInProfile, error) {
 	profile := &LinkedInProfile{}
-	var positionsJSON, locationsJSON string
+	var positionsJSON, locationsJSON, blacklistJSON, blacklistTitlesJSON string
 	var remoteOnly int
 
 	err := s.db.QueryRow(
 		`SELECT id, email, password, phone_number, positions, locations, remote_only,
-		        profile_url, years_experience, user_city, user_state, created_at, updated_at
+		        profile_url, years_experience, user_city, user_state,
+		        zip_code, desired_salary, blacklist, blacklist_titles,
+		        created_at, updated_at
 		 FROM linkedin_profiles WHERE id = ?`,
 		id,
 	).Scan(
 		&profile.ID, &profile.Email, &profile.Password, &profile.PhoneNumber,
 		&positionsJSON, &locationsJSON, &remoteOnly,
 		&profile.ProfileURL, &profile.YearsExperience, &profile.UserCity, &profile.UserState,
+		&profile.ZipCode, &profile.DesiredSalary, &blacklistJSON, &blacklistTitlesJSON,
 		&profile.CreatedAt, &profile.UpdatedAt,
 	)
 
@@ -72,6 +77,12 @@ func (s *Store) GetLinkedInProfile(id int64) (*LinkedInProfile, error) {
 	if err := json.Unmarshal([]byte(locationsJSON), &profile.Locations); err != nil {
 		profile.Locations = []string{}
 	}
+	if err := json.Unmarshal([]byte(blacklistJSON), &profile.Blacklist); err != nil {
+		profile.Blacklist = []string{}
+	}
+	if err := json.Unmarshal([]byte(blacklistTitlesJSON), &profile.BlacklistTitles); err != nil {
+		profile.BlacklistTitles = []string{}
+	}
 	profile.RemoteOnly = remoteOnly == 1
 
 	return profile, nil
@@ -81,7 +92,9 @@ func (s *Store) GetLinkedInProfile(id int64) (*LinkedInProfile, error) {
 func (s *Store) ListLinkedInProfiles() ([]*LinkedInProfile, error) {
 	rows, err := s.db.Query(
 		`SELECT id, email, password, phone_number, positions, locations, remote_only,
-		        profile_url, years_experience, user_city, user_state, created_at, updated_at
+		        profile_url, years_experience, user_city, user_state,
+		        zip_code, desired_salary, blacklist, blacklist_titles,
+		        created_at, updated_at
 		 FROM linkedin_profiles ORDER BY updated_at DESC`,
 	)
 	if err != nil {
@@ -92,13 +105,14 @@ func (s *Store) ListLinkedInProfiles() ([]*LinkedInProfile, error) {
 	var profiles []*LinkedInProfile
 	for rows.Next() {
 		profile := &LinkedInProfile{}
-		var positionsJSON, locationsJSON string
+		var positionsJSON, locationsJSON, blacklistJSON, blacklistTitlesJSON string
 		var remoteOnly int
 
 		if err := rows.Scan(
 			&profile.ID, &profile.Email, &profile.Password, &profile.PhoneNumber,
 			&positionsJSON, &locationsJSON, &remoteOnly,
 			&profile.ProfileURL, &profile.YearsExperience, &profile.UserCity, &profile.UserState,
+			&profile.ZipCode, &profile.DesiredSalary, &blacklistJSON, &blacklistTitlesJSON,
 			&profile.CreatedAt, &profile.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan LinkedIn profile: %w", err)
@@ -110,6 +124,12 @@ func (s *Store) ListLinkedInProfiles() ([]*LinkedInProfile, error) {
 		}
 		if err := json.Unmarshal([]byte(locationsJSON), &profile.Locations); err != nil {
 			profile.Locations = []string{}
+		}
+		if err := json.Unmarshal([]byte(blacklistJSON), &profile.Blacklist); err != nil {
+			profile.Blacklist = []string{}
+		}
+		if err := json.Unmarshal([]byte(blacklistTitlesJSON), &profile.BlacklistTitles); err != nil {
+			profile.BlacklistTitles = []string{}
 		}
 		profile.RemoteOnly = remoteOnly == 1
 
@@ -135,6 +155,10 @@ type LinkedInProfileUpdate struct {
 	YearsExperience int      `json:"yearsExperience"`
 	UserCity        string   `json:"userCity"`
 	UserState       string   `json:"userState"`
+	ZipCode         string   `json:"zipCode"`
+	DesiredSalary   int      `json:"desiredSalary"`
+	Blacklist       []string `json:"blacklist"`
+	BlacklistTitles []string `json:"blacklistTitles"`
 }
 
 // UpdateLinkedInProfile updates an existing LinkedIn profile
@@ -147,6 +171,14 @@ func (s *Store) UpdateLinkedInProfile(id int64, update LinkedInProfileUpdate) (*
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal locations: %w", err)
 	}
+	blacklistJSON, err := json.Marshal(update.Blacklist)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal blacklist: %w", err)
+	}
+	blacklistTitlesJSON, err := json.Marshal(update.BlacklistTitles)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal blacklist_titles: %w", err)
+	}
 
 	remoteOnly := 0
 	if update.RemoteOnly {
@@ -157,10 +189,12 @@ func (s *Store) UpdateLinkedInProfile(id int64, update LinkedInProfileUpdate) (*
 		`UPDATE linkedin_profiles SET
 			email = ?, password = ?, phone_number = ?, positions = ?, locations = ?,
 			remote_only = ?, profile_url = ?, years_experience = ?, user_city = ?, user_state = ?,
+			zip_code = ?, desired_salary = ?, blacklist = ?, blacklist_titles = ?,
 			updated_at = CURRENT_TIMESTAMP
 		 WHERE id = ?`,
 		update.Email, update.Password, update.PhoneNumber, string(positionsJSON), string(locationsJSON),
-		remoteOnly, update.ProfileURL, update.YearsExperience, update.UserCity, update.UserState, id,
+		remoteOnly, update.ProfileURL, update.YearsExperience, update.UserCity, update.UserState,
+		update.ZipCode, update.DesiredSalary, string(blacklistJSON), string(blacklistTitlesJSON), id,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update LinkedIn profile: %w", err)

@@ -34,6 +34,8 @@ function App() {
   const [downloadProgress, setDownloadProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'wizard' | 'dashboard' | 'settings'>('wizard')
+  const [applicationRefreshKey, setApplicationRefreshKey] = useState(0)
+  const [liveProgress, setLiveProgress] = useState<Record<string, unknown> | null>(null)
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -68,6 +70,19 @@ function App() {
 
     const unsubStop = Events.On('browser:stopped', () => {
       refreshStatus()
+      setLiveProgress(null)
+    })
+
+    const unsubJobApplied = Events.On('bot:job-applied', () => {
+      setApplicationRefreshKey((k) => k + 1)
+    })
+
+    const unsubJobFailed = Events.On('bot:job-failed', () => {
+      setApplicationRefreshKey((k) => k + 1)
+    })
+
+    const unsubBotProgress = Events.On('bot:progress', (ev) => {
+      setLiveProgress(ev.data as Record<string, unknown>)
     })
 
     const unsubProgress = Events.On('browser:download-progress', (ev) => {
@@ -86,6 +101,9 @@ function App() {
       unsubStop()
       unsubProgress()
       unsubDownloaded()
+      unsubJobApplied()
+      unsubJobFailed()
+      unsubBotProgress()
     }
   }, [refreshStatus, refreshProfiles])
 
@@ -100,10 +118,10 @@ function App() {
         setError('Please select a LinkedIn profile to start applying.')
         return
       }
-      await SetApplying(true)
-      await refreshStatus()
       await StartApplying(selectedProfile)
     } catch (e) {
+      await SetApplying(false)
+      await refreshStatus()
       setError(`Failed to start applying: ${e}`)
     }
   }
@@ -187,6 +205,8 @@ function App() {
             selectedProfile={selectedProfile}
             setViewMode={setViewMode}
             viewMode={viewMode}
+            refreshKey={applicationRefreshKey}
+            liveProgress={liveProgress}
           />
         </main>
       </div>

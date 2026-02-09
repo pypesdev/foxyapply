@@ -1,0 +1,14 @@
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+websockets>=12.0
+selenium>=4.15.0
+beautifulsoup4>=4.12.0
+pandas>=2.1.0
+pyautogui>=0.9.54
+fake-useragent>=1.4.0
+openai>=1.6.0
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+lxml>=4.9.0
+requests>=2.31.0
+pyinstaller>=6.0.0

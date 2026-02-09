@@ -15,6 +15,18 @@ jobs:
         with:
           go-version: "1.23"
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build PyInstaller bot binary
+        run: |
+          pip install -r requirements.txt
+          pyinstaller --onefile --name easyapplybot easyapplybot.py
+          mkdir -p build/darwin/resources
+          cp dist/easyapplybot build/darwin/resources/
+
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v3/cmd/wails3@latest
 
@@ -33,6 +45,13 @@ jobs:
           security unlock-keychain -p "$MACOS_CERTIFICATE_PASSWORD" build.keychain
           security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CERTIFICATE_PASSWORD" build.keychain
+          # Sign the bundled bot binary first
+          BOT="build/darwin/resources/easyapplybot"
+          if [ -f "$BOT" ]; then
+            codesign --force --options runtime --timestamp \
+              -s "$MACOS_SIGN_IDENTITY" \
+              "$BOT" -v
+          fi
           APP="build/darwin/bin/foxyapply"
           codesign --force --deep --options runtime --timestamp \
             -s "$MACOS_SIGN_IDENTITY" \

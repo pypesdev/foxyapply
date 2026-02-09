@@ -154,6 +154,25 @@ func (s *Store) migrate() error {
 		`ALTER TABLE linkedin_profiles ADD COLUMN years_experience INTEGER DEFAULT 0`,
 		`ALTER TABLE linkedin_profiles ADD COLUMN user_city TEXT DEFAULT ''`,
 		`ALTER TABLE linkedin_profiles ADD COLUMN user_state TEXT DEFAULT ''`,
+
+		// Migration 4: Add zip_code, desired_salary, blacklist, blacklist_titles
+		`ALTER TABLE linkedin_profiles ADD COLUMN zip_code TEXT DEFAULT ''`,
+		`ALTER TABLE linkedin_profiles ADD COLUMN desired_salary INTEGER DEFAULT 0`,
+		`ALTER TABLE linkedin_profiles ADD COLUMN blacklist TEXT DEFAULT '[]'`,
+		`ALTER TABLE linkedin_profiles ADD COLUMN blacklist_titles TEXT DEFAULT '[]'`,
+
+		// Migration 5: Create job_applications table
+		`CREATE TABLE IF NOT EXISTS job_applications (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			profile_id INTEGER NOT NULL,
+			job_id TEXT NOT NULL,
+			title TEXT NOT NULL DEFAULT '',
+			company TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'applied',
+			error_message TEXT DEFAULT '',
+			applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (profile_id) REFERENCES linkedin_profiles(id) ON DELETE CASCADE
+		)`,
 	}
 
 	for i, migration := range migrations {

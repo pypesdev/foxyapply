@@ -3,28 +3,30 @@ package main
 import (
 	"context"
 	"fmt"
-	"foxyapply/internal/browser"
+	"foxyapply/internal/pybot"
 	"foxyapply/internal/store"
+	"sync/atomic"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 type AppService struct {
-	app        *application.App
-	store      *store.Store
-	browser    *browser.BrowserManager
-	downloader *browser.ChromeDownloader
+	app             *application.App
+	store           *store.Store
+	bot             *pybot.Manager
+	activeProfileID atomic.Int64
 }
 
 func (s *AppService) ServiceStartup(ctx context.Context, options application.ServiceOptions) error {
 	s.app = application.Get()
-	s.browser = browser.NewBrowserManager(nil)
-	s.downloader = browser.NewChromeDownloader()
+	s.bot = pybot.NewManager("")
+	s.bot.SetEventHandler(s.handleBotEvent)
 
 	store, err := store.New()
-	fmt.Println("✅ App started")
+	fmt.Println("App started")
 	if err != nil {
-		fmt.Println("❌ Failed to initialize store:", err)
+		fmt.Println("Failed to initialize store:", err)
 	} else {
 		s.store = store
 	}
@@ -32,10 +34,13 @@ func (s *AppService) ServiceStartup(ctx context.Context, options application.Ser
 }
 
 func (s *AppService) ServiceShutdown(ctx context.Context, options application.ServiceOptions) error {
+	if s.bot != nil {
+		_ = s.bot.Stop()
+	}
 	if s.store != nil {
 		s.store.Close()
 	}
-	fmt.Println("🛑 App shutting down")
+	fmt.Println("App shutting down")
 	return nil
 }
 
@@ -49,22 +54,16 @@ type BrowserStatus struct {
 
 func (s *AppService) GetBrowserStatus() BrowserStatus {
 	return BrowserStatus{
-		Running:    s.browser.IsRunning(),
-		Applying:   s.browser.IsApplying(),
-		Downloaded: s.downloader.IsDownloaded(),
-		Version:    s.downloader.Version,
+		Running:    s.bot.IsRunning(),
+		Applying:   s.bot.IsApplying(),
+		Downloaded: true, // PyInstaller binary is pre-bundled
+		Version:    "selenium",
 	}
 }
 
 func (s *AppService) StartBrowser(email, password string) (bool, error) {
-	err := s.browser.Launch()
-	if err != nil {
-		return false, err
-	}
-	successfulLogin, _, err := s.browser.Login(email, password)
-	s.browser.Close()
-	s.app.Event.Emit("browser:started", nil)
-	return successfulLogin, nil
+	// Login now happens inside Python's /start — just return success.
+	return true, nil
 }
 
 func (s *AppService) StartApplying(profileId int) error {
@@ -72,52 +71,63 @@ func (s *AppService) StartApplying(profileId int) error {
 	if err != nil {
 		return fmt.Errorf("failed to get LinkedIn profile: %w", err)
 	}
-	err = s.browser.Launch()
-	if err != nil {
-		return err
+
+	// Start the bot process if not already running
+	if !s.bot.IsRunning() {
+		if err := s.bot.Start(); err != nil {
+			return fmt.Errorf("failed to start bot: %w", err)
+		}
 	}
 
-	successfulLogin, page, err := s.browser.Login(profile.Email, profile.Password)
-	if err != nil {
-		return err
+	if err := s.bot.StartApplying(profile); err != nil {
+		return fmt.Errorf("failed to start applying: %w", err)
 	}
-	if !successfulLogin {
-		return fmt.Errorf("failed to log in to LinkedIn")
-	}
-	fmt.Println("✅ Logged in to LinkedIn")
-	s.browser.StartApplying(profile, page)
+
+	s.activeProfileID.Store(int64(profileId))
+	s.app.Event.Emit("browser:started", nil)
 	return nil
 }
 
 func (s *AppService) StopBrowser() error {
-	err := s.browser.Close()
-	if err != nil {
+	if err := s.bot.Stop(); err != nil {
 		return err
 	}
-
-	s.browser.SetApplying(false)
 	s.app.Event.Emit("browser:stopped", nil)
 	return nil
 }
 
 func (s *AppService) DownloadBrowser() error {
-	// Emit progress events
-	progressFn := func(downloaded, total int64) {
-		percent := float64(downloaded) / float64(total) * 100
-		s.app.Event.Emit("browser:download-progress", map[string]interface{}{
-			"downloaded": downloaded,
-			"total":      total,
-			"percent":    percent,
-		})
-	}
-
-	err := s.downloader.Download(progressFn)
-	if err != nil {
-		return err
-	}
-
-	s.app.Event.Emit("browser:downloaded", nil)
+	// No-op: PyInstaller binary is pre-bundled with the app.
 	return nil
+}
+
+// handleBotEvent routes Python bot WebSocket events to Wails frontend events.
+func (s *AppService) handleBotEvent(event pybot.BotEvent) {
+	switch event.Type {
+	case pybot.EventBotStarted:
+		s.app.Event.Emit("browser:started", nil)
+	case pybot.EventBotStopped:
+		s.bot.SetApplying(false)
+		s.activeProfileID.Store(0)
+		s.app.Event.Emit("browser:stopped", event.Data)
+	case pybot.EventLoginFailed:
+		_ = s.bot.Stop()
+		s.activeProfileID.Store(0)
+		s.app.Event.Emit("browser:stopped", event.Data)
+	case pybot.EventJobApplied:
+		s.persistApplication(event.Data, "applied", "")
+		s.app.Event.Emit("bot:job-applied", event.Data)
+	case pybot.EventJobFailed:
+		errMsg, _ := event.Data["error"].(string)
+		s.persistApplication(event.Data, "failed", errMsg)
+		s.app.Event.Emit("bot:job-failed", event.Data)
+	case pybot.EventProgress:
+		s.app.Event.Emit("bot:progress", event.Data)
+	case pybot.EventLog:
+		s.app.Event.Emit("bot:log", event.Data)
+	case pybot.EventError:
+		s.app.Event.Emit("bot:error", event.Data)
+	}
 }
 
 // ============================================================================
@@ -165,5 +175,51 @@ func (s *AppService) DeleteLinkedInProfile(id int64) error {
 }
 
 func (s *AppService) SetApplying(applying bool) {
-	s.browser.SetApplying(applying)
+	s.bot.SetApplying(applying)
+}
+
+// persistApplication saves a job application event to the store.
+func (s *AppService) persistApplication(data map[string]interface{}, status, errorMessage string) {
+	if s.store == nil {
+		return
+	}
+	profileID := s.activeProfileID.Load()
+	if profileID == 0 {
+		return
+	}
+	jobID, _ := data["job_id"].(string)
+	title, _ := data["title"].(string)
+	company, _ := data["company"].(string)
+	_, err := s.store.CreateJobApplication(profileID, jobID, title, company, status, errorMessage)
+	if err != nil {
+		fmt.Println("Failed to persist application:", err)
+	}
+}
+
+// ListRecentApplications returns recent job applications for a profile
+func (s *AppService) ListRecentApplications(profileID int64, limit int) ([]*store.JobApplication, error) {
+	if s.store == nil {
+		return nil, fmt.Errorf("store not initialized")
+	}
+	return s.store.ListRecentApplications(profileID, limit)
+}
+
+// GetApplicationStats returns aggregate application stats for a profile
+func (s *AppService) GetApplicationStats(profileID int64, period string) (*store.ApplicationStats, error) {
+	if s.store == nil {
+		return nil, fmt.Errorf("store not initialized")
+	}
+
+	var since time.Time
+	now := time.Now()
+	switch period {
+	case "today":
+		since = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	case "week":
+		since = now.AddDate(0, 0, -7)
+	default: // "all"
+		// since stays zero-valued → no time filter
+	}
+
+	return s.store.GetApplicationStats(profileID, since)
 }

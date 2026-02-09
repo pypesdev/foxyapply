@@ -1,12 +1,19 @@
 import { useState, useEffect } from 'react'
 import { GetStartedGraphic } from './Graphic/GetStartedGraphic'
 import { LinkedInProfileUpdate } from '../../bindings/foxyapply/internal/store'
-import { GetLinkedInProfile, UpdateLinkedInProfile } from '../../bindings/foxyapply/appservice'
+import {
+  GetLinkedInProfile,
+  UpdateLinkedInProfile,
+  ListRecentApplications,
+  GetApplicationStats,
+} from '../../bindings/foxyapply/appservice'
 
 interface ApplicationsPanelProps {
   selectedProfile: number | null
   viewMode: 'wizard' | 'dashboard' | 'settings'
   setViewMode: (mode: 'wizard' | 'dashboard' | 'settings') => void
+  refreshKey: number
+  liveProgress: Record<string, unknown> | null
 }
 
 interface ProfileData {
@@ -40,10 +47,54 @@ const WIZARD_STEPS = [
   { id: 'preferences', title: 'Job Preferences', description: 'Positions and locations to search' },
 ]
 
+const US_STATES = new Set([
+  'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado',
+  'Connecticut', 'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho',
+  'Illinois', 'Indiana', 'Iowa', 'Kansas', 'Kentucky', 'Louisiana',
+  'Maine', 'Maryland', 'Massachusetts', 'Michigan', 'Minnesota',
+  'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada',
+  'New Hampshire', 'New Jersey', 'New Mexico', 'New York',
+  'North Carolina', 'North Dakota', 'Ohio', 'Oklahoma', 'Oregon',
+  'Pennsylvania', 'Rhode Island', 'South Carolina', 'South Dakota',
+  'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia', 'Washington',
+  'West Virginia', 'Wisconsin', 'Wyoming', 'District of Columbia',
+])
+
+const STATE_ABBREVIATIONS = new Set([
+  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
+  'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
+  'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
+  'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC',
+  'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY', 'DC',
+])
+
+function validateLocation(value: string): string | null {
+  const parts = value.split(',')
+  if (parts.length !== 2) {
+    return 'Location must be in the format "City, State" (e.g., Knoxville, Tennessee)'
+  }
+  const city = parts[0].trim()
+  const state = parts[1].trim()
+  if (!city) {
+    return 'City name is required'
+  }
+  if (STATE_ABBREVIATIONS.has(state.toUpperCase())) {
+    return 'Please spell out the full state name (e.g., Tennessee instead of TN)'
+  }
+  // Title-case the state for matching
+  const titleState = state.replace(/\b\w/g, c => c.toUpperCase())
+  if (!US_STATES.has(titleState)) {
+    return `"${state}" is not a recognized US state. Please use the full state name (e.g., Tennessee)`
+  }
+  return null
+}
+
 export function ApplicationsPanel({
   selectedProfile,
   setViewMode,
   viewMode,
+  refreshKey,
+  liveProgress,
 }: ApplicationsPanelProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -66,6 +117,7 @@ export function ApplicationsPanel({
 
   const [positionInput, setPositionInput] = useState('')
   const [locationInput, setLocationInput] = useState('')
+  const [locationError, setLocationError] = useState<string | null>(null)
 
   // Load profile data when selectedProfile changes
   useEffect(() => {
@@ -176,10 +228,18 @@ export function ApplicationsPanel({
   }
 
   const addLocation = () => {
-    if (locationInput.trim() && !profileData.locations.includes(locationInput.trim())) {
-      updateField('locations', [...profileData.locations, locationInput.trim()])
-      setLocationInput('')
+    const value = locationInput.trim()
+    if (!value) return
+    const error = validateLocation(value)
+    if (error) {
+      setLocationError(error)
+      return
     }
+    if (!profileData.locations.includes(value)) {
+      updateField('locations', [...profileData.locations, value])
+    }
+    setLocationInput('')
+    setLocationError(null)
   }
 
   const removeLocation = (index: number) => {
@@ -213,7 +273,15 @@ export function ApplicationsPanel({
 
   // Show dashboard
   if (viewMode === 'dashboard') {
-    return <Dashboard profileData={profileData} onEditSettings={() => setViewMode('settings')} />
+    return (
+      <Dashboard
+        profileData={profileData}
+        onEditSettings={() => setViewMode('settings')}
+        selectedProfile={selectedProfile}
+        refreshKey={refreshKey}
+        liveProgress={liveProgress}
+      />
+    )
   }
 
   // Show settings (full form for editing)
@@ -230,6 +298,8 @@ export function ApplicationsPanel({
         setLocationInput={setLocationInput}
         addLocation={addLocation}
         removeLocation={removeLocation}
+        locationError={locationError}
+        setLocationError={setLocationError}
         onSave={handleSaveAndContinue}
         onCancel={() => setViewMode('dashboard')}
         isSaving={isSaving}
@@ -665,14 +735,79 @@ function SettingsView({
   )
 }
 
+interface ApplicationRecord {
+  id: number
+  profileId: number
+  jobId: string
+  title: string
+  company: string
+  status: string
+  errorMessage: string
+  appliedAt: string
+}
+
+interface StatsRecord {
+  applied: number
+  failed: number
+  total: number
+}
+
+type StatsPeriod = 'today' | 'week' | 'all'
+
 // Dashboard (shown when profile is complete)
 function Dashboard({
   profileData,
   onEditSettings,
+  selectedProfile,
+  refreshKey,
+  liveProgress,
 }: {
   profileData: ProfileData
   onEditSettings: () => void
+  selectedProfile: number | null
+  refreshKey: number
+  liveProgress: Record<string, unknown> | null
 }) {
+  const [applications, setApplications] = useState<ApplicationRecord[]>([])
+  const [stats, setStats] = useState<Record<StatsPeriod, StatsRecord>>({
+    today: { applied: 0, failed: 0, total: 0 },
+    week: { applied: 0, failed: 0, total: 0 },
+    all: { applied: 0, failed: 0, total: 0 },
+  })
+  const [statsPeriod, setStatsPeriod] = useState<StatsPeriod>('today')
+
+  useEffect(() => {
+    if (!selectedProfile) return
+
+    const fetchData = async () => {
+      try {
+        const apps = await ListRecentApplications(selectedProfile, 50)
+        setApplications((apps as ApplicationRecord[]) || [])
+      } catch (e) {
+        console.error('Failed to fetch applications:', e)
+      }
+
+      try {
+        const [today, week, all] = await Promise.all([
+          GetApplicationStats(selectedProfile, 'today'),
+          GetApplicationStats(selectedProfile, 'week'),
+          GetApplicationStats(selectedProfile, 'all'),
+        ])
+        setStats({
+          today: (today as StatsRecord) || { applied: 0, failed: 0, total: 0 },
+          week: (week as StatsRecord) || { applied: 0, failed: 0, total: 0 },
+          all: (all as StatsRecord) || { applied: 0, failed: 0, total: 0 },
+        })
+      } catch (e) {
+        console.error('Failed to fetch stats:', e)
+      }
+    }
+
+    fetchData()
+  }, [selectedProfile, refreshKey])
+
+  const currentStats = stats[statsPeriod]
+
   return (
     <div style={styles.dashboard}>
       <div style={styles.dashboardHeader}>
@@ -682,17 +817,65 @@ function Dashboard({
         </button>
       </div>
 
+      {/* Live Progress */}
+      {liveProgress && (
+        <div style={styles.progressCard}>
+          <div style={styles.progressInfo}>
+            <span style={styles.progressLabel}>
+              {(liveProgress.message as string) || 'Applying...'}
+            </span>
+            {typeof liveProgress.current === 'number' && typeof liveProgress.total === 'number' && (
+              <span style={styles.progressCount}>
+                {liveProgress.current} / {liveProgress.total}
+              </span>
+            )}
+          </div>
+          {typeof liveProgress.current === 'number' && typeof liveProgress.total === 'number' && (liveProgress.total as number) > 0 && (
+            <div style={styles.progressBarBg}>
+              <div
+                style={{
+                  ...styles.progressBarFill,
+                  width: `${Math.min(100, ((liveProgress.current as number) / (liveProgress.total as number)) * 100)}%`,
+                }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Metrics */}
-      {/* <div style={styles.metricsRow}>
-        <div style={styles.metricCard}>
-          <span style={styles.metricValue}>0</span>
-          <span style={styles.metricLabel}>Applications Sent</span>
+      <div style={styles.metricsSection}>
+        <div style={styles.periodToggle}>
+          {(['today', 'week', 'all'] as StatsPeriod[]).map((p) => (
+            <button
+              key={p}
+              onClick={() => setStatsPeriod(p)}
+              style={{
+                ...styles.periodBtn,
+                ...(statsPeriod === p ? styles.periodBtnActive : {}),
+              }}
+            >
+              {p === 'today' ? 'Today' : p === 'week' ? 'This Week' : 'All Time'}
+            </button>
+          ))}
         </div>
-        <div style={styles.metricCard}>
-          <span style={styles.metricValue}>0%</span>
-          <span style={styles.metricLabel}>Response Rate</span>
+        <div style={styles.metricsRow}>
+          <div style={styles.metricCard}>
+            <span style={styles.metricValue}>{currentStats.applied}</span>
+            <span style={styles.metricLabel}>Applied</span>
+          </div>
+          <div style={styles.metricCard}>
+            <span style={{ ...styles.metricValue, color: currentStats.failed > 0 ? '#e74c3c' : '#0984e3' }}>
+              {currentStats.failed}
+            </span>
+            <span style={styles.metricLabel}>Failed</span>
+          </div>
+          <div style={styles.metricCard}>
+            <span style={styles.metricValue}>{currentStats.total}</span>
+            <span style={styles.metricLabel}>Total</span>
+          </div>
         </div>
-      </div> */}
+      </div>
 
       {/* Profile Summary */}
       <div style={styles.summaryCard}>
@@ -726,10 +909,36 @@ function Dashboard({
       {/* Recent Applications */}
       <div style={styles.applicationsCard}>
         <h3 style={styles.summaryTitle}>Recent Applications</h3>
-        <div style={styles.emptyState}>
-          <p>No applications yet</p>
-          <p style={styles.emptyHint}>Start the browser to begin applying for jobs</p>
-        </div>
+        {applications.length === 0 ? (
+          <div style={styles.emptyState}>
+            <p>No applications yet</p>
+            <p style={styles.emptyHint}>Start the browser to begin applying for jobs</p>
+          </div>
+        ) : (
+          <div style={styles.applicationsList}>
+            {applications.map((app) => (
+              <div key={app.id} style={styles.applicationRow}>
+                <div style={styles.applicationInfo}>
+                  <span style={styles.applicationTitle}>{app.title || 'Untitled'}</span>
+                  <span style={styles.applicationCompany}>{app.company || 'Unknown company'}</span>
+                </div>
+                <div style={styles.applicationMeta}>
+                  <span
+                    style={{
+                      ...styles.statusBadge,
+                      ...(app.status === 'applied' ? styles.statusApplied : styles.statusFailed),
+                    }}
+                  >
+                    {app.status === 'applied' ? 'Applied' : 'Failed'}
+                  </span>
+                  <span style={styles.applicationTime}>
+                    {new Date(app.appliedAt).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -1115,5 +1324,130 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '13px',
     color: '#555',
     marginTop: '8px',
+  },
+  // Progress card
+  progressCard: {
+    background: 'rgba(9, 132, 227, 0.1)',
+    border: '1px solid rgba(9, 132, 227, 0.3)',
+    borderRadius: '12px',
+    padding: '16px 20px',
+    marginBottom: '24px',
+  },
+  progressInfo: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '10px',
+  },
+  progressLabel: {
+    fontSize: '14px',
+    color: '#74b9ff',
+    fontWeight: 500,
+  },
+  progressCount: {
+    fontSize: '13px',
+    color: '#888',
+  },
+  progressBarBg: {
+    height: '6px',
+    borderRadius: '3px',
+    background: 'rgba(255,255,255,0.1)',
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: '3px',
+    background: 'linear-gradient(90deg, #0984e3, #74b9ff)',
+    transition: 'width 0.3s ease',
+  },
+  // Metrics section
+  metricsSection: {
+    marginBottom: '24px',
+  },
+  periodToggle: {
+    display: 'flex',
+    gap: '4px',
+    marginBottom: '12px',
+    background: 'rgba(255,255,255,0.05)',
+    borderRadius: '8px',
+    padding: '4px',
+    width: 'fit-content',
+  },
+  periodBtn: {
+    height: '32px',
+    padding: '0 16px',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: '6px',
+    color: '#888',
+    fontSize: '12px',
+    fontWeight: 500,
+    fontFamily: 'inherit',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+  },
+  periodBtnActive: {
+    background: 'rgba(9, 132, 227, 0.2)',
+    color: '#74b9ff',
+  },
+  // Applications list
+  applicationsList: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '2px',
+  },
+  applicationRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '12px 0',
+    borderBottom: '1px solid rgba(255,255,255,0.05)',
+  },
+  applicationInfo: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '2px',
+    minWidth: 0,
+    flex: 1,
+  },
+  applicationTitle: {
+    fontSize: '14px',
+    color: '#fff',
+    fontWeight: 500,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+  },
+  applicationCompany: {
+    fontSize: '12px',
+    color: '#888',
+  },
+  applicationMeta: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    flexShrink: 0,
+    marginLeft: '16px',
+  },
+  statusBadge: {
+    fontSize: '11px',
+    fontWeight: 600,
+    padding: '3px 10px',
+    borderRadius: '12px',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.5px',
+  },
+  statusApplied: {
+    background: 'rgba(0, 184, 148, 0.15)',
+    color: '#00b894',
+  },
+  statusFailed: {
+    background: 'rgba(231, 76, 60, 0.15)',
+    color: '#e74c3c',
+  },
+  applicationTime: {
+    fontSize: '12px',
+    color: '#666',
+    whiteSpace: 'nowrap' as const,
   },
 }
