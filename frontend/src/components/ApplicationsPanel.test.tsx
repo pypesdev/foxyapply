@@ -8,6 +8,8 @@ describe('ApplicationsPanel', () => {
     browserRunning: true,
     viewMode: 'wizard' as 'wizard' | 'dashboard' | 'settings',
     setViewMode: vi.fn(),
+    refreshKey: 0,
+    liveProgress: null,
   }
 
   beforeEach(() => {

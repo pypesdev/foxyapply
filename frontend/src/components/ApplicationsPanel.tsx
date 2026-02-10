@@ -576,6 +576,8 @@ function SettingsView({
   setLocationInput,
   addLocation,
   removeLocation,
+  locationError,
+  setLocationError,
   onSave,
   onCancel,
   isSaving,
@@ -591,6 +593,8 @@ function SettingsView({
   setLocationInput: (v: string) => void
   addLocation: () => void
   removeLocation: (i: number) => void
+  locationError: string | null
+  setLocationError: (v: string | null) => void
   onSave: () => void
   onCancel: () => void
   isSaving: boolean
@@ -1371,9 +1375,9 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'rgba(255,255,255,0.05)',
     borderRadius: '8px',
     padding: '4px',
-    width: 'fit-content',
   },
   periodBtn: {
+    flex: 1,
     height: '32px',
     padding: '0 16px',
     background: 'transparent',

@@ -33,9 +33,18 @@ export function DownloadBrowser(): $CancellablePromise<void> {
     return $Call.ByID(839986558);
 }
 
+/**
+ * GetApplicationStats returns aggregate application stats for a profile
+ */
+export function GetApplicationStats(profileID: number, period: string): $CancellablePromise<store$0.ApplicationStats | null> {
+    return $Call.ByID(3763545911, profileID, period).then(($result: any) => {
+        return $$createType3($result);
+    });
+}
+
 export function GetBrowserStatus(): $CancellablePromise<$models.BrowserStatus> {
     return $Call.ByID(4205620228).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType4($result);
     });
 }
 
@@ -53,7 +62,16 @@ export function GetLinkedInProfile(id: number): $CancellablePromise<store$0.Link
  */
 export function ListLinkedInProfiles(): $CancellablePromise<(store$0.LinkedInProfile | null)[]> {
     return $Call.ByID(4071004006).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType5($result);
+    });
+}
+
+/**
+ * ListRecentApplications returns recent job applications for a profile
+ */
+export function ListRecentApplications(profileID: number, limit: number): $CancellablePromise<(store$0.JobApplication | null)[]> {
+    return $Call.ByID(1491444618, profileID, limit).then(($result: any) => {
+        return $$createType8($result);
     });
 }
 
@@ -85,5 +103,10 @@ export function UpdateLinkedInProfile(id: number, update: store$0.LinkedInProfil
 // Private type creation functions
 const $$createType0 = store$0.LinkedInProfile.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);
-const $$createType2 = $models.BrowserStatus.createFrom;
-const $$createType3 = $Create.Array($$createType1);
+const $$createType2 = store$0.ApplicationStats.createFrom;
+const $$createType3 = $Create.Nullable($$createType2);
+const $$createType4 = $models.BrowserStatus.createFrom;
+const $$createType5 = $Create.Array($$createType1);
+const $$createType6 = store$0.JobApplication.createFrom;
+const $$createType7 = $Create.Nullable($$createType6);
+const $$createType8 = $Create.Array($$createType7);

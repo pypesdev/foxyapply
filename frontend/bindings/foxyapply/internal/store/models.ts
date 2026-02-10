@@ -10,6 +10,94 @@ import { Create as $Create } from "@wailsio/runtime";
 import * as time$0 from "../../../time/models.js";
 
 /**
+ * ApplicationStats holds aggregate counts for job applications
+ */
+export class ApplicationStats {
+    "applied": number;
+    "failed": number;
+    "total": number;
+
+    /** Creates a new ApplicationStats instance. */
+    constructor($$source: Partial<ApplicationStats> = {}) {
+        if (!("applied" in $$source)) {
+            this["applied"] = 0;
+        }
+        if (!("failed" in $$source)) {
+            this["failed"] = 0;
+        }
+        if (!("total" in $$source)) {
+            this["total"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ApplicationStats instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ApplicationStats {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ApplicationStats($$parsedSource as Partial<ApplicationStats>);
+    }
+}
+
+/**
+ * JobApplication represents a single job application attempt
+ */
+export class JobApplication {
+    "id": number;
+    "profileId": number;
+    "jobId": string;
+    "title": string;
+    "company": string;
+
+    /**
+     * "applied" or "failed"
+     */
+    "status": string;
+    "errorMessage": string;
+    "appliedAt": time$0.Time;
+
+    /** Creates a new JobApplication instance. */
+    constructor($$source: Partial<JobApplication> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = 0;
+        }
+        if (!("profileId" in $$source)) {
+            this["profileId"] = 0;
+        }
+        if (!("jobId" in $$source)) {
+            this["jobId"] = "";
+        }
+        if (!("title" in $$source)) {
+            this["title"] = "";
+        }
+        if (!("company" in $$source)) {
+            this["company"] = "";
+        }
+        if (!("status" in $$source)) {
+            this["status"] = "";
+        }
+        if (!("errorMessage" in $$source)) {
+            this["errorMessage"] = "";
+        }
+        if (!("appliedAt" in $$source)) {
+            this["appliedAt"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new JobApplication instance from a string or object.
+     */
+    static createFrom($$source: any = {}): JobApplication {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new JobApplication($$parsedSource as Partial<JobApplication>);
+    }
+}
+
+/**
  * LinkedInProfile represents a user's LinkedIn profile
  */
 export class LinkedInProfile {
