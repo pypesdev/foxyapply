@@ -4,6 +4,8 @@
 
 HiringFunnel runs a real browser, fills out applications with your info, and submits them while you do literally anything else.
 
+![Demo](demo.gif)
+
 ## Quick Start
 
 ```bash
