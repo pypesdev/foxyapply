@@ -1214,6 +1214,9 @@ class EasyApplyBot:
             "Questions asking ONLY for a number (e.g. 'How many years of experience', 'Years of experience', "
             "'Expected salary / hourly rate', 'How many hours per week') should be answered with ONLY a single "
             f"numeric value and no other text: use {yoe} for years/experience questions, {salary} for salary/wage questions. "
+            f"If the question is simply asking for the name of a technology (e.g. 'Python', 'Java', 'AWS'), "
+            f"respond with ONLY the number of years of experience: {yoe}. "
+            f"If the question is not phrased as a question, assume it is asking for experience with X and respond with {yoe}"
             "All other questions — including motivation, culture fit, or open-ended questions — require a full prose answer."
         )
         return (
