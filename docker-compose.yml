@@ -1,0 +1,11 @@
+version: "3.9"
+services:
+  foxyapply:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      - ./profiles.json:/app/profiles.json
+      - ./logs:/app/logs
+    command: ["python", "hiringfunnel.py", "--run", "default", "--headless"]
+    restart: unless-stopped
