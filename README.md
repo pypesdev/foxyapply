@@ -22,6 +22,15 @@ python3 hiringfunnel.py
 2. Set target job titles and locations
 3. Select **Start** — watch it apply to jobs in a real browser window
 
+## Docker
+
+```bash
+docker build -t foxyapply .
+docker run -it --rm foxyapply
+```
+
+Runs Chrome inside the container using Xvfb as a virtual display — no GUI needed.
+
 ## Development
 
 ### Prerequisites
