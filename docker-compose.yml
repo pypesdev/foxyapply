@@ -1,0 +1,13 @@
+services:
+  app:
+    build: .
+    env_file: .env          # picks up PYPES_BASE_URL, CLIENT_SECRET, OPENAI_API_KEY, etc.
+    environment:
+      - BOT_TARGET=25       # override per run: docker compose run app with BOT_TARGET=50
+      - BOT_TIMEOUT_MINUTES=120
+    volumes:
+      - ${HOME}/.hiringfunnel:/root/.hiringfunnel  # profiles + settings (read-only at runtime)
+      - ./logs:/app/logs                            # persist logs across runs
+    # No restart policy — container exits when the batch finishes.
+    # Scheduling is handled externally by launchd (see infra/com.hiringfunnel.plist).
+    restart: "no"

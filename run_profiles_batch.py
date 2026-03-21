@@ -9,10 +9,37 @@ applications has been submitted or a per-profile timeout is reached.
 from __future__ import annotations
 
 import argparse
+import datetime as _datetime
+import os
 import sys
 import threading
 import time
+import uuid as _uuid
 from typing import Dict, List, Optional
+
+try:
+    import requests as _requests
+except ImportError:
+    _requests = None  # type: ignore[assignment]
+
+_PYPES_BASE_URL = os.environ.get("PYPES_BASE_URL", "https://api.pypes.dev")
+_CLIENT_SECRET = os.environ.get("CLIENT_SECRET")
+_PYPES_JOB_EVENTS = {"job_applied", "job_failed", "daily_limit_reached", "consecutive_failures_exceeded"}
+
+
+def _pypes_post(path: str, payload: dict) -> None:
+    if not _CLIENT_SECRET or not _requests:
+        return
+    try:
+        _requests.post(
+            f"{_PYPES_BASE_URL}{path}",
+            json=payload,
+            headers={"X-Pypes-Secret": _CLIENT_SECRET},
+            timeout=5,
+        )
+    except Exception:
+        pass
+
 
 import easyapplybot as bot_module
 from easyapplybot import ProfileConfig, _run_bot
@@ -42,6 +69,7 @@ def run_profile(
 
     timeout_seconds = timeout_minutes * 60 if timeout_minutes else None
     done = threading.Event()
+    session_id = str(_uuid.uuid4())
     start = time.time()
 
     try:
@@ -82,6 +110,33 @@ def run_profile(
             print(f"[{name}] Target of {target} applications reached. Stopping bot...", flush=True)
             if bot_module._bot is not None:
                 bot_module._bot.stop()
+
+        now = _datetime.datetime.now(_datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        if event_type in _PYPES_JOB_EVENTS:
+            _pypes_post("/client/job-event", {
+                "profile": name,
+                "event": event_type,
+                "occurred_at": now,
+                **payload,
+            })
+        elif event_type == "bot_started":
+            _pypes_post("/client/bot-run", {
+                "profile": name,
+                "run_id": session_id,
+                "event": "started",
+                "occurred_at": now,
+            })
+        elif event_type == "bot_stopped":
+            _pypes_post("/client/bot-run", {
+                "profile": name,
+                "run_id": session_id,
+                "event": "stopped",
+                "reason": payload.get("reason", ""),
+                "applied": stats["applied"],
+                "failed": stats["failed"],
+                "seen": stats["seen"],
+                "occurred_at": now,
+            })
 
     thread = threading.Thread(target=_run_bot, args=(config, on_event), daemon=True)
     thread.start()

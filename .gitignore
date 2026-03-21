@@ -13,3 +13,4 @@ output.csv
 build/easyapplybot/EXE-00.toc
 build/easyapplybot/**
 logs/**
+infra/com.hiringfunnel.plist

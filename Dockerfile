@@ -23,4 +23,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["sh", "-c", "xvfb-run --server-args='-screen 0 1024x768x24' python hiringfunnel.py"]
+ENV HIRINGFUNNEL_HEADLESS=1
+
+CMD ["sh", "-c", "xvfb-run --server-args='-screen 0 1920x1080x24' python run_profiles_batch.py --target ${BOT_TARGET:-25} --timeout-minutes ${BOT_TIMEOUT_MINUTES:-120}"]
