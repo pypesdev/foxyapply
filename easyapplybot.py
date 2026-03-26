@@ -1,6 +1,8 @@
 import datetime
+import hashlib
 import logging
 import os
+import pickle
 import random
 import re
 import threading
@@ -366,7 +368,68 @@ class EasyApplyBot:
     # LinkedIn login
     # ------------------------------------------------------------------
 
+    def _is_logged_in(self) -> bool:
+        """Return True if the current page indicates a logged-in LinkedIn session."""
+        url = self.browser.current_url
+        if "/feed" in url or "/jobs" in url or "/mynetwork" in url:
+            return True
+        # Also check for the feed nav element that only appears when logged in
+        try:
+            self.browser.find_element(By.ID, "global-nav")
+            return True
+        except Exception:
+            return False
+
+    # ------------------------------------------------------------------
+    # Cookie persistence (per-email)
+    # ------------------------------------------------------------------
+
+    def _cookie_path(self, email: str) -> str:
+        """Return the cookie file path for the given email."""
+        slug = hashlib.sha256(email.lower().strip().encode()).hexdigest()[:12]
+        return os.path.expanduser(f"~/.hiringfunnel/linkedin_session_{slug}.pkl")
+
+    def _try_cookie_login(self, email: str) -> bool:
+        """Load saved cookies and check if the LinkedIn session is still valid."""
+        path = self._cookie_path(email)
+        if not os.path.exists(path):
+            return False
+        try:
+            self.browser.get("https://www.linkedin.com")
+            time.sleep(1)
+            with open(path, "rb") as f:
+                cookies = pickle.load(f)
+            for cookie in cookies:
+                try:
+                    self.browser.add_cookie(cookie)
+                except Exception:
+                    pass
+            self.browser.refresh()
+            time.sleep(2)
+            return self._is_logged_in()
+        except Exception:
+            return False
+
+    def _save_cookies(self, email: str) -> None:
+        """Persist current browser cookies to disk for next run."""
+        path = self._cookie_path(email)
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                pickle.dump(self.browser.get_cookies(), f)
+            log.info("LinkedIn cookies saved for next run")
+        except Exception as e:
+            log.warning(f"Could not save cookies: {e}")
+
+    # ------------------------------------------------------------------
+
     def start_linkedin(self, username, password) -> bool:
+        # Try saved cookies first
+        if self._try_cookie_login(username):
+            log.info("Logged in via saved cookies")
+            self._emit("login_success")
+            return True
+
         log.info("Logging in.....Please wait :)")
         self.browser.get("https://www.linkedin.com/login?trk=guest_homepage-basic_nav-header-signin")
         try:
@@ -380,6 +443,21 @@ class EasyApplyBot:
             time.sleep(2)
             login_button.click()
             time.sleep(3)
+
+            # Check for 2FA / verification challenge
+            if not self._is_logged_in():
+                log.info("2FA or verification challenge detected — waiting for manual input")
+                self._emit("2fa_required")
+                # Poll until logged in or stopped, up to 5 minutes
+                deadline = time.time() + 300
+                while not self._is_logged_in() and not self.stopped:
+                    if time.time() > deadline:
+                        log.info("Timed out waiting for 2FA")
+                        self._emit("login_failed", {"error": "2FA timeout"})
+                        return False
+                    time.sleep(3)
+
+            self._save_cookies(username)
             self._emit("login_success")
             return True
         except TimeoutException:

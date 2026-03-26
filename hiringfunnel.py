@@ -331,6 +331,9 @@ class BotState:
             msg = data.get("message", "Please log in manually in the browser.")
             self.status = f"[{self.current_board}] Waiting for manual login..."
             self.log_lines.append(f"  [yellow]{msg}[/yellow]")
+        elif event_type == "2fa_required":
+            self.status = f"[{self.current_board}] 2FA required — enter code in the browser"
+            self.log_lines.append("  [yellow]2FA/verification detected — complete it in the browser window[/yellow]")
         elif event_type == "login_success":
             self.status = f"[{self.current_board}] Logged in. Searching..."
         elif event_type == "login_failed":
