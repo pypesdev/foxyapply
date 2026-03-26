@@ -31,7 +31,7 @@ except ImportError:
     _anthropic = None  # type: ignore[assignment]
 
 try:
-    import google.generativeai as _genai
+    from google import genai as _genai
 except ImportError:
     _genai = None  # type: ignore[assignment]
 
@@ -1354,11 +1354,13 @@ class EasyApplyBot:
 
     def _llm_gemini(self, prompt: str) -> str:
         if _genai is None:
-            log.warning("google-generativeai package not installed – skipping LLM fallback")
+            log.warning("google-genai package not installed – skipping LLM fallback")
             return ""
-        _genai.configure(api_key=os.environ.get("GOOGLE_API_KEY", ""))
-        model = _genai.GenerativeModel("gemini-2.0-flash")
-        response = model.generate_content(prompt)
+        client = _genai.Client(api_key=os.environ.get("GOOGLE_API_KEY", ""))
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+        )
         return response.text.strip()
 
     def _llm_ollama(self, prompt: str) -> str:
