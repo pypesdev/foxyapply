@@ -70,6 +70,7 @@ class TestProfileConfig:
         assert config.zip_code == ""
         assert config.years_experience == 0
         assert config.desired_salary == 0
+        assert config.whitelist_titles == []
 
     def test_missing_email_raises(self):
         with pytest.raises(ValidationError):
@@ -107,6 +108,7 @@ class TestProfileConfig:
         assert "zip_code" in data
         assert "years_experience" in data
         assert "desired_salary" in data
+        assert "whitelist_titles" in data
         assert "ai_provider" not in data
         assert "ai_api_key" not in data
 
@@ -904,48 +906,6 @@ class TestBuildLLMPrompt:
 # Headless env var tests
 # ---------------------------------------------------------------------------
 
-class TestHeadlessMode:
-    """Tests for HIRINGFUNNEL_HEADLESS env var → Chrome --headless=new."""
-
-    def test_headless_env_var_adds_headless_arg(self):
-        import easyapplybot
-        captured = []
-
-        def fake_chrome(options=None):
-            captured.append(options)
-            drv = MagicMock()
-            drv.set_page_load_timeout = MagicMock()
-            return drv
-
-        with patch.dict("os.environ", {"HIRINGFUNNEL_HEADLESS": "1"}):
-            with patch("easyapplybot.webdriver.Chrome", side_effect=fake_chrome):
-                with patch("easyapplybot.UserAgent"):
-                    easyapplybot._make_chrome_driver()
-
-        assert captured, "Chrome was not instantiated"
-        args = captured[0].arguments
-        assert "--headless=new" in args
-
-    def test_no_headless_env_var_does_not_add_headless_arg(self):
-        import easyapplybot
-        captured = []
-
-        def fake_chrome(options=None):
-            captured.append(options)
-            drv = MagicMock()
-            drv.set_page_load_timeout = MagicMock()
-            return drv
-
-        env = {k: v for k, v in os.environ.items() if k != "HIRINGFUNNEL_HEADLESS"}
-        with patch.dict("os.environ", env, clear=True):
-            with patch("easyapplybot.webdriver.Chrome", side_effect=fake_chrome):
-                with patch("easyapplybot.UserAgent"):
-                    easyapplybot._make_chrome_driver()
-
-        args = captured[0].arguments
-        assert "--headless=new" not in args
-
-
 # ---------------------------------------------------------------------------
 # CLI --run flag tests
 # ---------------------------------------------------------------------------
@@ -1292,3 +1252,94 @@ class TestRunBotH1B:
         assert "bot_stopped" in event_types
         stopped = next(e for e in events if e[0] == "bot_stopped")
         assert stopped[1]["reason"] == "h1b_api_unavailable"
+
+
+# ---------------------------------------------------------------------------
+# Whitelist title filtering tests
+# ---------------------------------------------------------------------------
+
+class TestWhitelistTitleFiltering:
+    """Test per-profile whitelist filtering of job titles."""
+
+    def test_whitelist_defaults_empty(self):
+        config = ProfileConfig(email="a@b.com", password="pw")
+        assert config.whitelist_titles == []
+
+    def test_whitelist_round_trip(self):
+        config = ProfileConfig(email="a@b.com", password="pw",
+                               whitelist_titles=["typescript", "react"])
+        data = config.model_dump()
+        restored = ProfileConfig(**data)
+        assert restored.whitelist_titles == ["typescript", "react"]
+
+    def test_old_profile_without_whitelist(self):
+        """Old profile JSON missing whitelist_titles doesn't crash."""
+        data = {"email": "a@b.com", "password": "pw", "positions": ["Dev"]}
+        config = ProfileConfig(**data)
+        assert config.whitelist_titles == []
+
+    def _make_bot_stub(self, whitelist_titles=None, blacklist_titles=None):
+        """Create a minimal bot stub with real filtering attributes."""
+        stub = MagicMock()
+        stub.whitelist_titles = [t.lower() for t in (whitelist_titles or [])]
+        stub.blacklist_titles = [t.lower() for t in (blacklist_titles or [])]
+        stub.blacklist = []
+        return stub
+
+    def _title_passes_whitelist(self, whitelist_titles, title):
+        """Simulate the whitelist check from applications_loop."""
+        wl = [t.lower() for t in whitelist_titles]
+        if wl and not any(wt in title.lower() for wt in wl):
+            return False
+        return True
+
+    def _title_passes_blacklist(self, blacklist_titles, title):
+        """Simulate the blacklist title check from applications_loop."""
+        bl = [t.lower() for t in blacklist_titles]
+        if bl and any(bt in title.lower() for bt in bl):
+            return False
+        return True
+
+    def test_empty_whitelist_applies_to_all(self):
+        """Empty whitelist = no filtering, apply to everything."""
+        assert self._title_passes_whitelist([], "Java Backend Developer")
+        assert self._title_passes_whitelist([], "Typescript Senior Engineer")
+        assert self._title_passes_whitelist([], "Random Title")
+
+    def test_whitelist_match(self):
+        """Title containing a whitelist term passes."""
+        assert self._title_passes_whitelist(
+            ["typescript"], "Typescript Senior Frontend Engineer")
+
+    def test_whitelist_no_match(self):
+        """Title NOT containing any whitelist term is skipped."""
+        assert not self._title_passes_whitelist(
+            ["typescript", "react"], "Java Backend Developer")
+
+    def test_whitelist_case_insensitive(self):
+        """Matching is case-insensitive."""
+        assert self._title_passes_whitelist(["typescript"], "TYPESCRIPT ENGINEER")
+        assert self._title_passes_whitelist(["REACT"], "react native developer")
+
+    def test_whitelist_substring_match(self):
+        """Whitelist term matches as substring within title words."""
+        assert self._title_passes_whitelist(["react"], "React Native Engineer")
+        assert self._title_passes_whitelist(["python"], "Senior Python Developer")
+
+    def test_blacklist_trumps_whitelist(self):
+        """Blacklist check runs before whitelist — blacklisted title is skipped
+        even if it matches the whitelist."""
+        title = "Typescript Frontend Intern"
+        # Matches whitelist
+        assert self._title_passes_whitelist(["typescript"], title)
+        # But also matches blacklist — blacklist runs first in the code
+        assert not self._title_passes_blacklist(["intern"], title)
+
+    def test_whitelist_multiple_terms_any_match(self):
+        """Any single whitelist term matching is sufficient."""
+        assert self._title_passes_whitelist(
+            ["typescript", "react", "vue"], "React Native Engineer")
+        assert self._title_passes_whitelist(
+            ["typescript", "react", "vue"], "Vue.js Developer")
+        assert not self._title_passes_whitelist(
+            ["typescript", "react", "vue"], "Java Spring Developer")

@@ -86,6 +86,7 @@ PROFILE_FIELDS = [
     ("zip_code", "ZIP code", "text"),
     ("years_experience", "Years of experience", "text"),
     ("desired_salary", "Desired salary", "text"),
+    ("whitelist_titles", "Whitelist title terms (comma-separated, blank=apply to all)", "text"),
     ("job_boards", "Job boards to apply on", "checkbox", AVAILABLE_BOARDS),
 ]
 
@@ -153,7 +154,7 @@ def _prompt_single_field(field_def: tuple, current) -> tuple:
         result = questionary.text(label, default=str(display)).ask()
         if result is None:
             return True, None
-        if field in ("positions", "blacklist", "blacklist_titles"):
+        if field in ("positions", "blacklist", "blacklist_titles", "whitelist_titles"):
             return False, _parse_list(result)
         elif field in ("years_experience", "desired_salary"):
             return False, _parse_int(result)

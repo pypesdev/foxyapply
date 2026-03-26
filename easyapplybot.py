@@ -103,6 +103,10 @@ class ProfileConfig(BaseModel):
     # documented H-1B sponsorship record (via GET /h1b/check on the pypes API).
     # PYPES_BASE_URL env var controls the API base (default: https://api.pypes.dev).
     requires_visa: bool = False
+    # Per-profile whitelist: when non-empty, only apply to jobs whose title
+    # contains at least one of these terms (case-insensitive substring match).
+    # Empty list = disabled (apply to everything).
+    whitelist_titles: List[str] = []
 
     @model_validator(mode='before')
     @classmethod
@@ -203,6 +207,7 @@ class EasyApplyBot:
         self.checked_invalid = False
         self.blacklist = [c.lower() for c in (blacklist or [])]
         self.blacklist_titles = [t.lower() for t in (blacklist_titles or [])]
+        self.whitelist_titles = [t.lower() for t in config.whitelist_titles]
 
         # H-1B visa filter state (only active when config.requires_visa=True).
         # _h1b_cache: per-session company lookup cache keyed by lowercase company name.
@@ -371,14 +376,27 @@ class EasyApplyBot:
     def _is_logged_in(self) -> bool:
         """Return True if the current page indicates a logged-in LinkedIn session."""
         url = self.browser.current_url
+        # Logged-in pages: /feed, /jobs, /mynetwork, or the base linkedin.com
+        # homepage (which only shows when authenticated — unauthenticated users
+        # get redirected to /login or /authwall).
         if "/feed" in url or "/jobs" in url or "/mynetwork" in url:
             return True
-        # Also check for the feed nav element that only appears when logged in
+        if "/login" in url or "/authwall" in url or "/checkpoint" in url:
+            return False
+        # Check for the global nav element that only renders when logged in
         try:
             self.browser.find_element(By.ID, "global-nav")
             return True
         except Exception:
-            return False
+            pass
+        # Fallback: on linkedin.com with no login/authwall path means we're
+        # authenticated (e.g. https://www.linkedin.com/ after cookie restore)
+        parsed = urlparse(url)
+        if parsed.hostname and "linkedin.com" in parsed.hostname:
+            path = parsed.path.rstrip("/")
+            if path == "" or path in ("/feed", "/jobs", "/mynetwork", "/messaging"):
+                return True
+        return False
 
     # ------------------------------------------------------------------
     # Cookie persistence (per-email)
@@ -561,6 +579,11 @@ class EasyApplyBot:
                         continue
                     if self.blacklist_titles and any(bt in job_title.lower() for bt in self.blacklist_titles):
                         log.info(f"Skipping blacklisted title: {job_title}")
+                        continue
+
+                    # Whitelist filter: if whitelist is set, only apply to matching titles
+                    if self.whitelist_titles and not any(wt in job_title.lower() for wt in self.whitelist_titles):
+                        log.info(f"Skipping non-whitelisted title: {job_title}")
                         continue
 
                     # H-1B visa filter: skip companies with no USCIS sponsorship record.
