@@ -125,7 +125,8 @@ class IndeedBot(JobBoardBot):
             # Must visit the domain before adding cookies
             self.driver.get("https://www.indeed.com")
             time.sleep(1)
-            cookies = pickle.load(open(self.COOKIES_FILE, "rb"))
+            with open(self.COOKIES_FILE, "rb") as f:
+                cookies = pickle.load(f)
             for cookie in cookies:
                 try:
                     self.driver.add_cookie(cookie)
@@ -133,8 +134,19 @@ class IndeedBot(JobBoardBot):
                     pass
             self.driver.refresh()
             time.sleep(2)
-            return self._is_logged_in()
-        except Exception:
+            if self._is_logged_in():
+                return True
+            # Session expired — delete stale cookies and fall through
+            log.info("Saved Indeed session expired, falling back to manual login")
+            self._emit("cookie_login_expired", {"board": self.name})
+            os.remove(self.COOKIES_FILE)
+            return False
+        except Exception as e:
+            log.warning(f"Cookie login failed: {e}")
+            try:
+                os.remove(self.COOKIES_FILE)
+            except OSError:
+                pass
             return False
 
     def _manual_login_wait(self) -> bool:

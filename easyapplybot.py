@@ -424,8 +424,20 @@ class EasyApplyBot:
                     pass
             self.browser.refresh()
             time.sleep(2)
-            return self._is_logged_in()
-        except Exception:
+            if self._is_logged_in():
+                return True
+            # Session expired — delete stale cookies and fall through
+            log.info("Saved LinkedIn session expired, falling back to login")
+            self._emit("cookie_login_expired")
+            os.remove(path)
+            return False
+        except Exception as e:
+            log.warning(f"Cookie login failed: {e}")
+            # Remove corrupted cookie file
+            try:
+                os.remove(path)
+            except OSError:
+                pass
             return False
 
     def _save_cookies(self, email: str) -> None:
@@ -441,6 +453,52 @@ class EasyApplyBot:
 
     # ------------------------------------------------------------------
 
+    def _handle_welcome_back(self, email: str) -> bool:
+        """Handle LinkedIn's 'Welcome Back' page that lists saved profiles.
+
+        If the user's email domain matches a listed profile, click it.
+        If not, click 'Sign in using another account' to get the standard form.
+        Returns True if a matching profile was clicked, False if the page
+        wasn't a Welcome Back page or no match was found.
+        """
+        try:
+            profile_buttons = self.browser.find_elements(
+                By.CSS_SELECTOR, "button.member-profile__details"
+            )
+        except Exception:
+            return False
+
+        if not profile_buttons:
+            return False
+
+        log.info("Welcome Back page detected with %d saved profile(s)", len(profile_buttons))
+
+        # LinkedIn masks emails like "a*****@domain.com" — match on domain
+        email_domain = email.lower().strip().split("@", 1)[1] if "@" in email else ""
+        for btn in profile_buttons:
+            try:
+                handle = btn.find_element(By.CSS_SELECTOR, "p.profile__handle").text
+                if handle and "@" in handle:
+                    handle_domain = handle.lower().strip().split("@", 1)[1]
+                    if handle_domain == email_domain:
+                        log.info("Clicking matching saved profile: %s", handle)
+                        btn.click()
+                        return True
+            except Exception:
+                continue
+
+        # No matching profile — click "Sign in using another account"
+        try:
+            other_btn = self.browser.find_element(
+                By.CSS_SELECTOR, "button.signin-other-account"
+            )
+            log.info("No matching saved profile — clicking 'Sign in using another account'")
+            other_btn.click()
+            time.sleep(2)
+        except Exception:
+            log.warning("Could not find 'Sign in using another account' button")
+        return False
+
     def start_linkedin(self, username, password) -> bool:
         # Try saved cookies first
         if self._try_cookie_login(username):
@@ -450,6 +508,15 @@ class EasyApplyBot:
 
         log.info("Logging in.....Please wait :)")
         self.browser.get("https://www.linkedin.com/login?trk=guest_homepage-basic_nav-header-signin")
+        time.sleep(2)
+
+        # Handle "Welcome Back" page — click matching profile or
+        # "Sign in using another account" to get the standard login form.
+        # Clicking a profile does NOT authenticate; it just pre-selects the
+        # account. Always fall through to the password form.
+        self._handle_welcome_back(username)
+        time.sleep(2)
+
         try:
             user_field = self.browser.find_element("id", "username")
             pw_field = self.browser.find_element("id", "password")
