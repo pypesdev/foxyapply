@@ -328,6 +328,10 @@ class BotState:
             reason = data.get("reason", "")
             self.status = f"Stopped: {reason}"
             self.stopped = True
+        elif event_type == "cookie_login_expired":
+            board = data.get("board", self.current_board)
+            self.status = f"[{board}] Saved session expired, logging in again..."
+            self.log_lines.append(f"  [yellow]Saved session expired — falling back to login[/yellow]")
         elif event_type == "login_manual_required":
             msg = data.get("message", "Please log in manually in the browser.")
             self.status = f"[{self.current_board}] Waiting for manual login..."
