@@ -501,10 +501,10 @@ class EasyApplyBot:
 
     def start_linkedin(self, username, password) -> bool:
         # Try saved cookies first
-        if self._try_cookie_login(username):
-            log.info("Logged in via saved cookies")
-            self._emit("login_success")
-            return True
+        #_login(username):
+            # log.info("Logged in via saved cookies")
+            # self._emit("login_success")
+            # return True
 
         log.info("Logging in.....Please wait :)")
         self.browser.get("https://www.linkedin.com/login?trk=guest_homepage-basic_nav-header-signin")
