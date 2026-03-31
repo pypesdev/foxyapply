@@ -771,7 +771,12 @@ class EasyApplyBot:
             button = self.browser.find_elements("xpath", '//*[contains(@aria-label, "Easy Apply to") or contains(@aria-label, "LinkedIn Apply to")]')
             if len(button) == 0:
                 return False
-            button[0].click()
+            self.browser.execute_script("arguments[0].scrollIntoView({block: 'center'});", button[0])
+            time.sleep(0.3)
+            try:
+                button[0].click()
+            except Exception:
+                self.browser.execute_script("arguments[0].click();", button[0])
             time.sleep(1)
 
             if self._check_daily_limit():
