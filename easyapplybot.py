@@ -877,7 +877,10 @@ class EasyApplyBot:
                 buttons = [next_locater, review_locater, follow_locator,
                            submit_locater, submit_application_locator]
                 for i, button_locator in enumerate(buttons):
-                    if is_present(button_locator) and not has_errors():
+                    if not is_present(button_locator):
+                        continue
+                    # Allow submit even when minor errors remain on the page
+                    if i in (3, 4) or not has_errors():
                         button = self.wait.until(EC.element_to_be_clickable(button_locator))
 
                     if is_present(error_locator):
@@ -900,7 +903,12 @@ class EasyApplyBot:
 
                     if button:
                         no_progress_count = 0
-                        button.click()
+                        self.browser.execute_script("arguments[0].scrollIntoView({block: 'center'});", button)
+                        time.sleep(0.3)
+                        try:
+                            button.click()
+                        except Exception:
+                            self.browser.execute_script("arguments[0].click();", button)
                         time.sleep(random.uniform(0.5, 1.5))
                         if i in (3, 4):
                             submitted = True
