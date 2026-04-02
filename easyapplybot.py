@@ -21,6 +21,10 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 try:
+    import undetected_chromedriver as uc
+except ImportError:
+    uc = None  # type: ignore[assignment]
+try:
     import pyautogui
 except ImportError:
     pyautogui = None  # type: ignore[assignment]
@@ -161,13 +165,34 @@ def _make_chrome_driver():
     options.add_argument("--disable-blink-features")
     options.add_argument(f'--user-agent={ua.random}')
     options.add_argument('--disable-blink-features=AutomationControlled')
-    options.add_experimental_option("useAutomationExtension", False)
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
     if os.environ.get("HIRINGFUNNEL_HEADLESS") == "1":
         options.add_argument("--headless=new")
         options.add_argument("--disable-gpu")
         options.add_argument("--window-size=1920,1080")
-    driver = webdriver.Chrome(options=options)
+    if uc is not None:
+        # Detect installed Chrome major version to avoid driver/browser mismatch
+        chrome_ver = None
+        try:
+            import subprocess
+            out = subprocess.check_output(
+                ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "--version"],
+                stderr=subprocess.DEVNULL, text=True)
+            chrome_ver = int(out.strip().split()[-1].split(".")[0])
+            log.info(f"Starting Chrome via undetected-chromedriver (Chrome {chrome_ver})")
+        except Exception:
+            log.info("Starting Chrome via undetected-chromedriver")
+        driver = uc.Chrome(options=options, version_main=chrome_ver)
+    else:
+        log.info("Starting Chrome via standard Selenium (undetected-chromedriver not installed)")
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        driver = webdriver.Chrome(options=options)
+    try:
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+        })
+    except Exception:
+        pass
     driver.set_page_load_timeout(30)
     return driver
 
@@ -850,20 +875,38 @@ class EasyApplyBot:
             pass
 
     def send_resume(self, deadline: Optional[float] = None) -> bool:
-        def is_present(button_locator) -> bool:
-            return len(self.browser.find_elements(button_locator[0], button_locator[1])) > 0
-
         def has_errors() -> bool:
             return len(self.browser.find_elements(By.XPATH, '//*[contains(@type, "error-pebble-icon")]')) > 0
 
         try:
-            time.sleep(random.uniform(1.5, 2.5))
-            next_locater = (By.CSS_SELECTOR, "button[aria-label='Continue to next step']")
-            review_locater = (By.CSS_SELECTOR, "button[aria-label='Review your application']")
-            submit_locater = (By.CSS_SELECTOR, "button[aria-label='Submit application']")
-            submit_application_locator = (By.CSS_SELECTOR, "button[aria-label='Submit application']")
+            # Wait for the Easy Apply modal to appear before looking for buttons
+            try:
+                WebDriverWait(self.browser, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR,
+                        "div.jobs-easy-apply-content, div.jobs-easy-apply-modal"))
+                )
+            except TimeoutException:
+                log.warning("Easy Apply modal did not appear within 10s")
+                return False
+            time.sleep(random.uniform(0.3, 0.8))
+
+            next_locater = (By.XPATH, "//button[contains(@aria-label,'Continue to next step') or contains(@aria-label,'continue to next step')]")
+            review_locater = (By.XPATH, "//button[contains(@aria-label,'Review your application') or contains(@aria-label,'review your application')]")
+            submit_locater = (By.XPATH, "//button[contains(@aria-label,'Submit application') or contains(@aria-label,'submit application')]")
+            submit_btn_locator = (By.CSS_SELECTOR, "button[data-live-test-easy-apply-submit-button]")
             error_locator = (By.CLASS_NAME, "artdeco-inline-feedback__message")
             follow_locator = (By.CSS_SELECTOR, "label[for='follow-company-checkbox']")
+
+            buttons = [next_locater, review_locater,
+                       submit_locater, submit_btn_locator]
+
+            def _find_any_button(driver):
+                """Return (index, element) for the first action button found, or False."""
+                for idx, loc in enumerate(buttons):
+                    elems = driver.find_elements(loc[0], loc[1])
+                    if elems:
+                        return (idx, elems[0])
+                return False
 
             submitted = False
             no_progress_count = 0
@@ -873,53 +916,71 @@ class EasyApplyBot:
                 if self.stopped:
                     return False
 
-                button = None
-                buttons = [next_locater, review_locater, follow_locator,
-                           submit_locater, submit_application_locator]
-                for i, button_locator in enumerate(buttons):
-                    if not is_present(button_locator):
-                        continue
-                    # Allow submit even when minor errors remain on the page
-                    if i in (3, 4) or not has_errors():
-                        button = self.wait.until(EC.element_to_be_clickable(button_locator))
-
-                    if is_present(error_locator):
-                        try:
-                            for element in self.browser.find_elements(error_locator[0], error_locator[1]):
-                                text = element.text
-                                if "integer" in text.lower() or "whole number" in text.lower():
-                                    try:
-                                        inp = element.find_element(By.XPATH, "./ancestor::div[contains(@class,'fb-dash-form-element')][1]//input")
-                                        inp.clear()
-                                        inp.send_keys(str(self.years_of_experience))
-                                        log.info(f"Replaced non-integer value with years_of_experience due to: {text}")
-                                    except Exception as ie:
-                                        log.debug(f"Could not fix integer field: {ie}")
-                                elif ("Please enter" in text or "Please make" in text or "Enter a" in text or "Select checkbox to proceed") and not self.checked_invalid:
-                                    self.fill_invalids()
-                                    break
-                        except Exception as e:
-                            log.info(e)
-
-                    if button:
-                        no_progress_count = 0
-                        self.browser.execute_script("arguments[0].scrollIntoView({block: 'center'});", button)
+                # Uncheck "follow company" if present (before looking for action buttons)
+                try:
+                    follow_els = self.browser.find_elements(follow_locator[0], follow_locator[1])
+                    if follow_els:
+                        follow_els[0].click()
                         time.sleep(0.3)
-                        try:
-                            button.click()
-                        except Exception:
-                            self.browser.execute_script("arguments[0].click();", button)
-                        time.sleep(random.uniform(0.5, 1.5))
-                        if i in (3, 4):
-                            submitted = True
-                        if i != 2:
-                            break
-                if button is None:
+                except Exception:
+                    pass
+
+                # Poll for any action button for up to 5 seconds (0.5s intervals)
+                button = None
+                button_idx = None
+                try:
+                    result = WebDriverWait(self.browser, 5).until(_find_any_button)
+                    button_idx, button = result
+                except TimeoutException:
+                    pass
+
+                # Handle form validation errors regardless of button state
+                if self.browser.find_elements(error_locator[0], error_locator[1]):
+                    try:
+                        for element in self.browser.find_elements(error_locator[0], error_locator[1]):
+                            text = element.text
+                            if "integer" in text.lower() or "whole number" in text.lower():
+                                try:
+                                    inp = element.find_element(By.XPATH, "./ancestor::div[contains(@class,'fb-dash-form-element')][1]//input")
+                                    inp.clear()
+                                    inp.send_keys(str(self.years_of_experience))
+                                    log.info(f"Replaced non-integer value with years_of_experience due to: {text}")
+                                except Exception as ie:
+                                    log.debug(f"Could not fix integer field: {ie}")
+                            elif ("Please enter" in text or "Please make" in text or "Enter a" in text or "Select checkbox to proceed") and not self.checked_invalid:
+                                self.fill_invalids()
+                                break
+                    except Exception as e:
+                        log.info(e)
+
+
+                if button:
+                    no_progress_count = 0
+                    self.browser.execute_script("arguments[0].scrollIntoView({block: 'center'});", button)
+                    time.sleep(0.3)
+                    try:
+                        button.click()
+                    except Exception:
+                        self.browser.execute_script("arguments[0].click();", button)
+                    time.sleep(random.uniform(0.5, 1.5))
+                    if button_idx in (2, 3):
+                        submitted = True
+                    if submitted:
+                        break
+                    continue
+                else:
                     no_progress_count += 1
-                    if no_progress_count >= 15:
-                        log.warning("No actionable buttons found after 15 iterations, abandoning application")
+                    if no_progress_count == 2:
+                        try:
+                            modal_buttons = self.browser.find_elements(By.CSS_SELECTOR, "div.jobs-easy-apply-content button")
+                            labels = [b.get_attribute("aria-label") or b.text.strip() for b in modal_buttons[:10]]
+                            log.debug(f"Modal buttons found: {labels}")
+                        except Exception:
+                            pass
+                    if no_progress_count >= 6:
+                        log.warning("No actionable buttons found after 30s, abandoning application")
                         return False
-                    time.sleep(1)
+
                 if submitted:
                     self.checked_invalid = False
                     log.info("Application Submitted")

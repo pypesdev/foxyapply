@@ -11,3 +11,5 @@ rich>=13.0.0
 anthropic>=0.40.0
 google-genai>=1.0.0
 ollama>=0.4.0
+undetected-chromedriver>=3.5.0
+setuptools>=61.0
