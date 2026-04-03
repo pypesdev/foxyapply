@@ -666,7 +666,7 @@ class EasyApplyBot:
                         company = "Unknown"
 
                     # Check blacklists
-                    if self.blacklist and company.lower() in self.blacklist:
+                    if self.blacklist and any(bc in company.lower() for bc in self.blacklist):
                         log.info(f"Skipping blacklisted company: {company}")
                         continue
                     if self.blacklist_titles and any(bt in job_title.lower() for bt in self.blacklist_titles):
