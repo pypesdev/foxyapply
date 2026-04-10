@@ -1,0 +1,120 @@
+#!/bin/bash
+# Pre-commit hook: lint (with auto-fix) and test before committing
+
+set -e
+
+echo "🔍 Running pre-commit checks..."
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Track if we need to re-stage files after lint fixes
+RESTAGE_NEEDED=false
+
+# Get list of staged files
+STAGED_GO_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
+STAGED_TS_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx)$' || true)
+
+# === Go Linting ===
+if [ -n "$STAGED_GO_FILES" ]; then
+    echo -e "${YELLOW}► Running Go linter with auto-fix...${NC}"
+
+    # Run golangci-lint with fix on staged files
+    if command -v golangci-lint &> /dev/null; then
+        # Fix what can be fixed
+        golangci-lint run --fix ./... 2>/dev/null || true
+
+        # Check if any staged Go files were modified
+        for file in $STAGED_GO_FILES; do
+            if [ -f "$file" ] && ! git diff --quiet "$file" 2>/dev/null; then
+                echo -e "${GREEN}  ✓ Auto-fixed: $file${NC}"
+                git add "$file"
+                RESTAGE_NEEDED=true
+            fi
+        done
+
+        # Now run lint check (will fail if unfixable issues remain)
+        if ! golangci-lint run ./...; then
+            echo -e "${RED}✗ Go lint failed. Please fix the issues above.${NC}"
+            exit 1
+        fi
+        echo -e "${GREEN}✓ Go lint passed${NC}"
+    else
+        echo -e "${YELLOW}  ⚠ golangci-lint not found, skipping Go lint${NC}"
+    fi
+fi
+
+# === Frontend Linting ===
+if [ -n "$STAGED_TS_FILES" ]; then
+    echo -e "${YELLOW}► Running frontend linter with auto-fix...${NC}"
+
+    cd frontend
+
+    # Run ESLint with fix
+    npm run lint 2>/dev/null || true
+
+    cd ..
+
+    # Check if any staged TS files were modified and re-stage them
+    for file in $STAGED_TS_FILES; do
+        if [ -f "$file" ] && ! git diff --quiet "$file" 2>/dev/null; then
+            echo -e "${GREEN}  ✓ Auto-fixed: $file${NC}"
+            git add "$file"
+            RESTAGE_NEEDED=true
+        fi
+    done
+
+    # Run Prettier with fix
+    cd frontend
+    npm run format 2>/dev/null || true
+    cd ..
+
+    # Re-stage formatted files
+    for file in $STAGED_TS_FILES; do
+        if [ -f "$file" ] && ! git diff --quiet "$file" 2>/dev/null; then
+            echo -e "${GREEN}  ✓ Formatted: $file${NC}"
+            git add "$file"
+            RESTAGE_NEEDED=true
+        fi
+    done
+
+    # Now run lint check (will fail if unfixable issues remain)
+    cd frontend
+    if ! npm run lint:check; then
+        echo -e "${RED}✗ Frontend lint failed. Please fix the issues above.${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✓ Frontend lint passed${NC}"
+    cd ..
+fi
+
+if [ "$RESTAGE_NEEDED" = true ]; then
+    echo -e "${GREEN}► Auto-fixes applied and staged${NC}"
+fi
+
+# === Go Tests ===
+if [ -n "$STAGED_GO_FILES" ]; then
+    echo -e "${YELLOW}► Running Go tests...${NC}"
+    if ! go test ./...; then
+        echo -e "${RED}✗ Go tests failed${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✓ Go tests passed${NC}"
+fi
+
+# === Frontend Tests ===
+if [ -n "$STAGED_TS_FILES" ]; then
+    echo -e "${YELLOW}► Running frontend tests...${NC}"
+    cd frontend
+    if ! npm run test:run; then
+        echo -e "${RED}✗ Frontend tests failed${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✓ Frontend tests passed${NC}"
+    cd ..
+fi
+
+echo -e "${GREEN}✓ All pre-commit checks passed!${NC}"

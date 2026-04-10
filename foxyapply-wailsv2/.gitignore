@@ -1,0 +1,39 @@
+# Build outputs
+build/bin/
+frontend/dist/
+
+# Dependencies
+frontend/node_modules/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Wails
+wails.json.bak
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Chrome downloads
+.applyfox/
+
+# Test coverage
+coverage/
+frontend/coverage/
+*.cover
+*.out
+coverage.html
+
+# Logs
+*.log
+npm-debug.log*

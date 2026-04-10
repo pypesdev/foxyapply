@@ -1,0 +1,115 @@
+# golangci-lint configuration
+# Run: golangci-lint run
+
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    # Default linters
+    - errcheck # Check for unchecked errors
+    - gosimple # Simplify code
+    - govet # Vet examines Go source code
+    - ineffassign # Detects ineffectual assignments
+    - staticcheck # Static analysis
+    - unused # Checks for unused code
+
+    # Additional recommended linters
+    - bodyclose # Checks whether HTTP response body is closed
+    - dogsled # Checks assignments with too many blank identifiers
+    - dupl # Code clone detection
+    - errorlint # Find problems with error wrapping
+    - exhaustive # Check exhaustiveness of enum switch statements
+    - goconst # Find repeated strings that could be constants
+    - gocritic # Provides diagnostics that check for bugs, performance, style issues
+    - gofmt # Checks whether code was gofmt-ed
+    - goimports # Check import statements are formatted correctly
+    - gosec # Security problems
+    - misspell # Find commonly misspelled English words
+    - nakedret # Find naked returns in large functions
+    - nilerr # Find code that returns nil even if it checks that error is not nil
+    - noctx # Find http.Request.WithContext usage
+    - prealloc # Find slice declarations that could be preallocated
+    - predeclared # Find code that shadows predeclared identifiers
+    - revive # Fast, configurable linter
+    - stylecheck # Stylecheck is a replacement for golint
+    - unconvert # Remove unnecessary type conversions
+    - unparam # Find unused function parameters
+    - whitespace # Detect leading and trailing whitespace
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment # Too strict for most cases
+
+  goimports:
+    local-prefixes: applyfox
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+
+  gosec:
+    excludes:
+      - G104 # Audit errors not checked (too noisy)
+
+  revive:
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: exported
+      - name: increment-decrement
+      - name: indent-error-flow
+      - name: package-comments
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: unexported-return
+      - name: var-declaration
+      - name: var-naming
+
+  stylecheck:
+    checks: ["all", "-ST1000", "-ST1003"]
+
+  nakedret:
+    max-func-lines: 30
+
+  dupl:
+    threshold: 100
+
+issues:
+  exclude-rules:
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - dupl
+        - gosec
+        - bodyclose
+
+    # Exclude known false positives
+    - linters:
+        - gocritic
+      text: "unnecessaryDefer"
+
+  max-issues-per-linter: 50
+  max-same-issues: 5
+
+output:
+  formats:
+    - format: colored-line-number
+  sort-results: true

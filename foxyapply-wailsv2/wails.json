@@ -1,0 +1,22 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "applyfox",
+  "outputfilename": "applyfox",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "Apply Fox",
+    "email": "dev@example.com"
+  },
+  "info": {
+    "companyName": "Desktop Apply",
+    "productName": "Desktop Apply",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright 2024",
+    "comments": "Desktop application with browser automation"
+  },
+  "wailsjsdir": "./frontend/src/lib",
+  "assetdir": "./frontend/dist"
+}
